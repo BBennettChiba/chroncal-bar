@@ -33,7 +33,11 @@ Panel {
   readonly property bool showingDetails: selectedEvent !== null && !showingEditor
   property bool showingSettings: false
   property bool showingHelp: false
-  readonly property bool showingSubview: showingDetails || showingEditor || showingSettings || showingHelp
+  property var selectedTask: null
+  property string taskEditorMode: ""
+  readonly property bool showingTaskEditor: taskEditorMode !== ""
+  readonly property bool showingTaskDetails: selectedTask !== null && !showingTaskEditor
+  readonly property bool showingSubview: showingDetails || showingEditor || showingSettings || showingHelp || showingTaskDetails || showingTaskEditor
   property bool mutationBusy: false
   property string mutationKind: ""
   property string mutationError: ""
@@ -51,6 +55,13 @@ Panel {
   property var pendingDeleteEvent: null
   property bool rsvpRefreshPending: false
   property string rsvpExpectedStatus: ""
+  property bool taskMutationBusy: false
+  property string taskMutationKind: ""
+  property string taskMutationError: ""
+  property string taskMutationStdoutText: ""
+  property string taskMutationStderrText: ""
+  property string taskActionStatus: ""
+  property var pendingDeleteTask: null
 
   readonly property color contentForeground: bar ? bar.foreground : Color.foreground
   readonly property string contentFontFamily: bar ? bar.fontFamily : Style.font.family
@@ -71,6 +82,10 @@ Panel {
     root.showingHelp = false
     root.resetEditState()
     root.pendingDeleteEvent = null
+    root.selectedTask = null
+    root.taskEditorMode = ""
+    root.taskActionStatus = ""
+    root.pendingDeleteTask = null
     deleteConfirm.opened = false
     root.controller.hide()
   }
@@ -94,6 +109,23 @@ Panel {
     showingHelp = false
     actionStatus = ""
     resetEditState()
+    selectedTask = null
+    taskEditorMode = ""
+    taskActionStatus = ""
+    Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+  }
+
+  function showTask(taskData) {
+    selectedTask = taskData
+    taskEditorMode = ""
+    taskActionStatus = ""
+    taskMutationError = ""
+    selectedEvent = null
+    selectedEventKey = ""
+    editorMode = ""
+    showingSettings = false
+    showingHelp = false
+    resetEditState()
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
 
@@ -106,6 +138,9 @@ Panel {
     showingHelp = false
     actionStatus = ""
     resetEditState()
+    selectedTask = null
+    taskEditorMode = ""
+    taskActionStatus = ""
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
 
@@ -115,6 +150,8 @@ Panel {
     showingHelp = false
     showingSettings = showingSettings ? false : true
     resetEditState()
+    selectedTask = null
+    taskEditorMode = ""
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
 
@@ -147,7 +184,7 @@ Panel {
   }
 
   function moveSelection(step) {
-    if (showingDetails || showingSettings || showingEditor || showingHelp || visibleEvents.length === 0) return
+    if (showingDetails || showingSettings || showingEditor || showingHelp || showingTaskDetails || showingTaskEditor || visibleEvents.length === 0) return
     var current = selectedEventIndex()
     var next = current < 0 ? (step > 0 ? 0 : visibleEvents.length - 1) : Model.clampSelection(current + step, visibleEvents.length)
     selectedEventKey = Model.eventKey(visibleEvents[next])
@@ -155,14 +192,14 @@ Panel {
 
   function focusedEvent() {
     if (selectedEvent) return selectedEvent
-    if (showingSettings || showingHelp || showingEditor) return null
+    if (showingSettings || showingHelp || showingEditor || showingTaskDetails || showingTaskEditor) return null
     var current = selectedEventIndex()
     if (current < 0) return null
     return visibleEvents[current]
   }
 
   function moveSelectionByDay(direction) {
-    if (showingDetails || showingSettings || showingEditor || showingHelp || visibleEvents.length === 0) return
+    if (showingDetails || showingSettings || showingEditor || showingHelp || showingTaskDetails || showingTaskEditor || visibleEvents.length === 0) return
     var index = Model.adjacentDayFirstEventIndex(visibleEvents, selectedEventIndex(), direction)
     if (index >= 0) selectedEventKey = Model.eventKey(visibleEvents[index])
   }
@@ -171,9 +208,12 @@ Panel {
     if (deleteConfirm.opened) {
       deleteConfirm.opened = false
       pendingDeleteEvent = null
+      pendingDeleteTask = null
     } else if (showingEditor) {
       cancelEditor()
-    } else if (showingDetails || showingSettings || showingHelp) {
+    } else if (showingTaskEditor) {
+      cancelTaskEditor()
+    } else if (showingDetails || showingSettings || showingHelp || showingTaskDetails) {
       backToAgenda()
     } else if (searching) {
       endSearch()
@@ -183,13 +223,13 @@ Panel {
   }
 
   function activateSelection() {
-    if (showingDetails || showingSettings || showingEditor || showingHelp || visibleEvents.length === 0) return
+    if (showingDetails || showingSettings || showingEditor || showingHelp || showingTaskDetails || showingTaskEditor || visibleEvents.length === 0) return
     var current = selectedEventIndex()
     showEvent(visibleEvents[current < 0 ? 0 : current])
   }
 
   function beginSearch() {
-    if (showingDetails || showingSettings || showingEditor || showingHelp || agendaData.status !== "ok") return
+    if (showingDetails || showingSettings || showingEditor || showingHelp || showingTaskDetails || showingTaskEditor || agendaData.status !== "ok") return
     searching = true
     Qt.callLater(function() { searchField.forceActiveFocus() })
   }
@@ -228,6 +268,8 @@ Panel {
     showingSettings = false
     showingHelp = showingHelp ? false : true
     resetEditState()
+    selectedTask = null
+    taskEditorMode = ""
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
 
@@ -244,6 +286,8 @@ Panel {
     mutationError = ""
     resetEditState()
     editorMode = "create"
+    selectedTask = null
+    taskEditorMode = ""
   }
 
   function resetEditState() {
@@ -263,7 +307,7 @@ Panel {
 
   function startEdit() {
     var event = focusedEvent()
-    if (!event || !Model.canEditEvent(event) || showingSettings || showingHelp) return
+    if (!event || !Model.canEditEvent(event) || showingSettings || showingHelp || showingTaskDetails || showingTaskEditor) return
     if (mutationBusy || editLoadBusy) return
     var direct = Model.canMutateEvent(event)
     var lookupArgs = direct ? [] : Model.seriesMasterLookupArgs(event)
@@ -345,7 +389,7 @@ Panel {
 
   function requestDelete() {
     var event = focusedEvent()
-    if (!event || mutationBusy || editLoadBusy || !Model.canDeleteEvent(event) || showingSettings || showingHelp || showingEditor) return
+    if (!event || mutationBusy || editLoadBusy || !Model.canDeleteEvent(event) || showingSettings || showingHelp || showingEditor || showingTaskDetails || showingTaskEditor) return
     pendingDeleteEvent = event
     deleteConfirm.recurring = Model.isRecurringEvent(event)
     deleteConfirm.selectedIndex = 0
@@ -436,6 +480,93 @@ Panel {
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
 
+  function startTaskEdit() {
+    var task = selectedTask
+    if (!task || !Model.canEditTask(task) || showingSettings || showingHelp) return
+    if (taskMutationBusy) return
+    taskEditorMode = "edit"
+    taskMutationError = ""
+    taskActionStatus = ""
+    Qt.callLater(function() { taskEditor.initialize() })
+  }
+
+  function cancelTaskEditor() {
+    var wasEditing = taskEditorMode === "edit"
+    taskEditorMode = ""
+    taskMutationError = ""
+    if (!wasEditing) selectedTask = null
+    Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+  }
+
+  function submitTaskEditor(values) {
+    if (Model.validateTaskForm(values).length > 0) {
+      taskMutationError = "Check the task fields"
+      return
+    }
+    var args = Model.taskMutationArgs("edit", selectedTask, values)
+    if (args.length === 0) {
+      // Nothing actually changed — just drop back to the details view.
+      taskEditorMode = ""
+      return
+    }
+    runTaskMutation(args, "edit")
+  }
+
+  function requestDeleteTask() {
+    var task = selectedTask
+    if (!task || taskMutationBusy || !Model.canDeleteTask(task) || showingSettings || showingHelp || showingTaskEditor) return
+    pendingDeleteTask = task
+    deleteConfirm.recurring = false
+    deleteConfirm.selectedIndex = 0
+    deleteConfirm.opened = true
+    Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+  }
+
+  function confirmDeleteTask() {
+    deleteConfirm.opened = false
+    var task = pendingDeleteTask || selectedTask
+    pendingDeleteTask = null
+    if (!task) return
+    var args = Model.taskDeleteArgs(task)
+    if (args.length === 0) return
+    runTaskMutation(args, "delete")
+  }
+
+  function completeTask() {
+    if (taskMutationBusy || !showingTaskDetails) return
+    var args = Model.taskCompleteArgs(selectedTask)
+    if (args.length === 0) return
+    runTaskMutation(args, "complete")
+  }
+
+  function runTaskMutation(args, kind) {
+    if (taskMutationBusy || !hostWidget || !hostWidget.chroncalExecScript) return
+    taskMutationBusy = true
+    taskMutationKind = kind
+    taskMutationError = ""
+    taskMutationStdoutText = ""
+    taskMutationStderrText = ""
+    taskMutationProc.command = [hostWidget.chroncalExecScript].concat(args)
+    taskMutationProc.running = true
+  }
+
+  function finishTaskMutation(exitCode) {
+    var completed = taskMutationKind
+    taskMutationBusy = false
+    if (exitCode !== 0) {
+      taskMutationError = String(taskMutationStderrText || taskMutationStdoutText || "Chroncal could not save the task").trim()
+      taskActionStatus = taskMutationError
+      taskActionStatusTimer.restart()
+      return
+    }
+    taskEditorMode = ""
+    selectedTask = null
+    taskActionStatus = completed === "delete" ? "Task deleted" : (completed === "complete" ? "Marked complete" : "Task updated")
+    taskActionStatusTimer.restart()
+    refresh()
+    Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+  }
+
   function openUrl(url) {
     if (!url) return
     Quickshell.execDetached(["xdg-open", String(url)])
@@ -472,11 +603,24 @@ Panel {
     onTriggered: root.actionStatus = ""
   }
 
+  Timer {
+    id: taskActionStatusTimer
+    interval: 2000
+    onTriggered: root.taskActionStatus = ""
+  }
+
   Process {
     id: mutationProc
     stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.mutationStdoutText = text }
     stderr: StdioCollector { waitForEnd: true; onStreamFinished: root.mutationStderrText = text }
     onExited: function(exitCode) { Qt.callLater(function() { root.finishMutation(exitCode) }) }
+  }
+
+  Process {
+    id: taskMutationProc
+    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.taskMutationStdoutText = text }
+    stderr: StdioCollector { waitForEnd: true; onStreamFinished: root.taskMutationStderrText = text }
+    onExited: function(exitCode) { Qt.callLater(function() { root.finishTaskMutation(exitCode) }) }
   }
 
   Process {
@@ -499,27 +643,30 @@ Panel {
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
-      blocked: (root.searching && searchField.activeFocus) || root.showingEditor
+      blocked: (root.searching && searchField.activeFocus) || root.showingEditor || root.showingTaskEditor
       onMoveRequested: function(dx, dy) {
         if (deleteConfirm.opened) {
           if (dx !== 0) deleteConfirm.cycle(dx)
           else if (dy !== 0) deleteConfirm.cycle(dy)
           return
         }
-        if (root.showingDetails || root.showingSettings || root.showingEditor || root.showingHelp) return
+        if (root.showingDetails || root.showingSettings || root.showingEditor || root.showingHelp || root.showingTaskDetails || root.showingTaskEditor) return
         if (dy !== 0) root.moveSelection(dy)
         else if (dx !== 0) root.moveSelectionByDay(dx)
       }
       onCloseRequested: root.handleClose()
       onActivateRequested: {
         if (deleteConfirm.opened) deleteConfirm.activate()
-        else if (!root.showingDetails && !root.showingSettings && !root.showingEditor && !root.showingHelp) root.activateSelection()
+        else if (!root.showingDetails && !root.showingSettings && !root.showingEditor && !root.showingHelp && !root.showingTaskDetails && !root.showingTaskEditor) root.activateSelection()
       }
       onTabRequested: function(direction) {
         if (deleteConfirm.opened) deleteConfirm.cycle(direction)
         else root.switchPanel(direction)
       }
-      onDeleteRequested: root.requestDelete()
+      onDeleteRequested: {
+        if (root.showingTaskDetails) root.requestDeleteTask()
+        else root.requestDelete()
+      }
       onTextKey: function(text) {
         if (deleteConfirm.opened) {
           if (text === "q") root.handleClose()
@@ -532,8 +679,11 @@ Panel {
         else if (text === "/") root.beginSearch()
         else if (text === "," || text === "C") root.toggleSettings()
         else if (text === "c") root.startCreate()
-        else if (!root.showingDetails && !root.showingSettings && !root.showingEditor && (text === "t" || text === "T")) root.selectToday()
-        else if (!root.showingSettings && !root.showingEditor && (text === "e" || text === "E")) root.startEdit()
+        else if (!root.showingDetails && !root.showingSettings && !root.showingEditor && !root.showingTaskDetails && !root.showingTaskEditor && (text === "t" || text === "T")) root.selectToday()
+        else if (!root.showingSettings && !root.showingEditor && !root.showingTaskEditor && (text === "e" || text === "E")) {
+          if (root.showingTaskDetails) root.startTaskEdit()
+          else root.startEdit()
+        }
         else if (root.showingDetails && (text === "v" || text === "V")) root.joinEvent()
         else if (root.showingDetails && (text === "p" || text === "P")) root.copyEventDetails()
         else if (root.showingDetails && (text === "g" || text === "G")) root.openChroncal()
@@ -545,7 +695,10 @@ Panel {
       Shortcut {
         sequence: "Delete"
         enabled: root.opened && !keyCatcher.blocked
-        onActivated: root.requestDelete()
+        onActivated: {
+          if (root.showingTaskDetails) root.requestDeleteTask()
+          else root.requestDelete()
+        }
       }
 
       Column {
@@ -559,7 +712,7 @@ Panel {
           Text {
             width: parent.width - headerActions.width
             anchors.verticalCenter: parent.verticalCenter
-            text: root.showingEditor ? (root.editorMode === "edit" ? "EDIT EVENT" : "NEW EVENT") : (root.showingDetails ? "EVENT DETAILS" : (root.showingSettings ? "SETTINGS" : (root.showingHelp ? "SHORTCUTS" : "UPCOMING")))
+            text: root.showingEditor ? (root.editorMode === "edit" ? "EDIT EVENT" : "NEW EVENT") : (root.showingTaskEditor ? "EDIT TASK" : (root.showingDetails ? "EVENT DETAILS" : (root.showingTaskDetails ? "TASK DETAILS" : (root.showingSettings ? "SETTINGS" : (root.showingHelp ? "SHORTCUTS" : "UPCOMING")))))
             color: root.contentForeground
             font.family: root.contentFontFamily
             font.pixelSize: Style.font.caption
@@ -575,12 +728,13 @@ Panel {
             PanelActionButton {
               visible: root.showingSubview
               iconText: "←"
-              tooltipText: root.showingEditor ? "Cancel and go back" : "Back to agenda"
+              tooltipText: (root.showingEditor || root.showingTaskEditor) ? "Cancel and go back" : "Back to agenda"
               foreground: root.contentForeground
               fontFamily: root.contentFontFamily
               onClicked: {
                 if (deleteConfirm.opened) deleteConfirm.opened = false
                 else if (root.showingEditor) root.cancelEditor()
+                else if (root.showingTaskEditor) root.cancelTaskEditor()
                 else root.backToAgenda()
               }
             }
@@ -626,7 +780,7 @@ Panel {
 
           TextField {
             id: searchField
-            visible: root.searching && !root.showingDetails && !root.showingSettings && !root.showingEditor && !root.showingHelp && root.agendaData.status === "ok"
+            visible: root.searching && !root.showingDetails && !root.showingSettings && !root.showingEditor && !root.showingHelp && !root.showingTaskDetails && !root.showingTaskEditor && root.agendaData.status === "ok"
             enabled: visible
             activeFocusOnPress: visible
             anchors.top: parent.top
@@ -673,7 +827,7 @@ Panel {
           }
 
           Text {
-            visible: !root.showingDetails && !root.showingSettings && !root.showingEditor && !root.showingHelp && root.agendaData.status === "unavailable"
+            visible: !root.showingDetails && !root.showingSettings && !root.showingEditor && !root.showingHelp && !root.showingTaskDetails && !root.showingTaskEditor && root.agendaData.status === "unavailable"
             anchors.centerIn: parent
             width: parent.width - Style.space(24)
             text: "Chroncal is unavailable\nThe agenda will retry automatically."
@@ -685,7 +839,7 @@ Panel {
           }
 
           Text {
-            visible: !root.showingDetails && !root.showingSettings && !root.showingEditor && !root.showingHelp && root.agendaData.status === "ok" && root.groups.length === 0 && root.visibleTasks.length === 0
+            visible: !root.showingDetails && !root.showingSettings && !root.showingEditor && !root.showingHelp && !root.showingTaskDetails && !root.showingTaskEditor && root.agendaData.status === "ok" && root.groups.length === 0 && root.visibleTasks.length === 0
             anchors.centerIn: parent
             text: root.searchQuery !== "" ? "No matching events" : "No upcoming events"
             color: Util.alpha(root.contentForeground, 0.66)
@@ -695,7 +849,7 @@ Panel {
 
           Flickable {
             id: agendaFlick
-            visible: !root.showingDetails && !root.showingSettings && !root.showingEditor && !root.showingHelp && root.agendaData.status === "ok" && (root.groups.length > 0 || root.visibleTasks.length > 0)
+            visible: !root.showingDetails && !root.showingSettings && !root.showingEditor && !root.showingHelp && !root.showingTaskDetails && !root.showingTaskEditor && root.agendaData.status === "ok" && (root.groups.length > 0 || root.visibleTasks.length > 0)
             anchors.top: searchField.bottom
             anchors.topMargin: searchField.visible ? Style.space(10) : 0
             anchors.left: parent.left
@@ -778,6 +932,7 @@ Panel {
                     bar: root.bar
                     taskData: modelData
                     nowIso: root.tasksData.generated_at || ""
+                    onActivated: function(taskData) { root.showTask(taskData) }
                   }
                 }
               }
@@ -818,6 +973,32 @@ Panel {
             onSubmitted: function(values) { root.submitEditor(values) }
           }
 
+          TaskDetails {
+            visible: root.showingTaskDetails
+            enabled: !deleteConfirm.opened
+            anchors.fill: parent
+            bar: root.bar
+            taskData: root.selectedTask || ({})
+            nowIso: root.tasksData.generated_at || ""
+            actionStatus: root.taskActionStatus
+            busy: root.taskMutationBusy
+            onEditRequested: root.startTaskEdit()
+            onDeleteRequested: root.requestDeleteTask()
+            onCompleteRequested: root.completeTask()
+          }
+
+          TaskEditor {
+            id: taskEditor
+            visible: root.showingTaskEditor
+            anchors.fill: parent
+            bar: root.bar
+            taskData: root.selectedTask
+            busy: root.taskMutationBusy
+            externalError: root.taskMutationError
+            onCanceled: root.cancelTaskEditor()
+            onSubmitted: function(values) { root.submitTaskEditor(values) }
+          }
+
           CalendarSettings {
             visible: root.showingSettings
             anchors.fill: parent
@@ -851,15 +1032,21 @@ Panel {
         id: deleteConfirm
         anchors.fill: parent
         z: 20
-        title: String((root.pendingDeleteEvent || root.selectedEvent) ? (root.pendingDeleteEvent || root.selectedEvent).title : "this event")
+        title: root.pendingDeleteTask
+          ? String(root.pendingDeleteTask.summary || "this task")
+          : String((root.pendingDeleteEvent || root.selectedEvent) ? (root.pendingDeleteEvent || root.selectedEvent).title : "this event")
         background: root.bar ? root.bar.background : Color.background
         foreground: root.contentForeground
         fontFamily: root.contentFontFamily
         onCanceled: {
           opened = false
           root.pendingDeleteEvent = null
+          root.pendingDeleteTask = null
         }
-        onChosen: function(scope) { root.confirmDelete(scope) }
+        onChosen: function(scope) {
+          if (root.pendingDeleteTask) root.confirmDeleteTask()
+          else root.confirmDelete(scope)
+        }
       }
     }
   }

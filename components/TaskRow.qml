@@ -10,9 +10,7 @@ Item {
   property var taskData: ({})
   property string nowIso: ""
 
-  // ponytail: read-only for now — no complete/edit action from the panel.
-  // Todos are CLI-managed (`chroncal todo ...`); add a click-to-complete
-  // action here if that friction turns out to matter in practice.
+  signal activated(var taskData)
 
   readonly property color foreground: bar ? bar.foreground : Color.foreground
   readonly property string dueLabel: Model.taskDateLabel(root.taskData, root.nowIso ? new Date(root.nowIso) : new Date())
@@ -26,6 +24,13 @@ Item {
     anchors.bottom: parent.bottom
     radius: width / 2
     color: root.taskData.calendar_color || "#888888"
+  }
+
+  MouseArea {
+    anchors.fill: parent
+    hoverEnabled: true
+    cursorShape: Qt.PointingHandCursor
+    onClicked: root.activated(root.taskData)
   }
 
   Text {

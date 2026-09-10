@@ -464,6 +464,24 @@ const tasksByCalendar = [{ calendar_id: 1 }, { calendar_id: 2 }];
 assert.deepEqual(model.filterTasks(tasksByCalendar, { includedCalendarIds: ["1"], calendarSelectionCustomized: true }), [{ calendar_id: 1 }]);
 assert.deepEqual(model.filterTasks(tasksByCalendar, { calendarSelectionCustomized: false }), tasksByCalendar);
 
+// task editing: mutation/delete/complete arg builders (drive TaskEditor's onSubmitted -> Panel -> chroncal-exec)
+const editableTask = { id: 4, uid: "u1", summary: "Begin visa renewal", due_date: "2026-11-15", start_date: "", status: "NEEDS-ACTION", priority: 0, description: "" };
+assert.deepEqual(model.taskMutationArgs("edit", editableTask, model.taskEditorValues(editableTask)), []);
+const editedValues = model.taskEditorValues(editableTask);
+editedValues.summary = "Begin visa renewal (urgent)";
+editedValues.due = "";
+editedValues.priority = 3;
+assert.deepEqual(
+  model.taskMutationArgs("edit", editableTask, editedValues),
+  ["todo", "update", "4", "--summary", "Begin visa renewal (urgent)", "--due", "", "--priority", "3"]
+);
+const blankSummary = model.taskEditorValues(editableTask);
+blankSummary.summary = "   ";
+assert.deepEqual(model.taskMutationArgs("edit", editableTask, blankSummary), []);
+assert.deepEqual(model.taskDeleteArgs(editableTask), ["todo", "delete", "4", "--yes"]);
+assert.deepEqual(model.taskCompleteArgs(editableTask), ["todo", "complete", "4"]);
+assert.equal(model.taskReference({}), "");
+
 console.log("agenda model tests: ok");
 
 const recurrenceStart = "2026-08-19"; // Wednesday

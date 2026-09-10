@@ -368,6 +368,84 @@ function taskDateLabel(task, now) {
   return prefix + dayLabel(date, now);
 }
 
+function taskKey(task) {
+  return task ? String(task.uid || task.id || "") : "";
+}
+
+function taskReference(task) {
+  if (!task) return "";
+  if (presentValue(task.id)) return String(task.id);
+  if (presentValue(task.uid)) return String(task.uid);
+  return "";
+}
+
+function canEditTask(task) {
+  return taskReference(task) !== "";
+}
+
+function canDeleteTask(task) {
+  return canEditTask(task);
+}
+
+function taskStatusOptions() {
+  return [
+    { value: "NEEDS-ACTION", label: "Not started" },
+    { value: "IN-PROCESS", label: "In progress" },
+    { value: "COMPLETED", label: "Completed" },
+    { value: "CANCELLED", label: "Cancelled" }
+  ];
+}
+
+function taskEditorValues(task) {
+  return {
+    summary: task ? String(task.summary || "") : "",
+    due: task ? String(task.due_date || "") : "",
+    start: task ? String(task.start_date || "") : "",
+    status: task && presentValue(task.status) ? String(task.status) : "NEEDS-ACTION",
+    priority: task && presentValue(task.priority) ? Number(task.priority) : 0,
+    description: task ? String(task.description || "") : ""
+  };
+}
+
+function validateTaskForm(values) {
+  var errors = [];
+  var form = values || {};
+  if (String(form.summary || "").trim() === "") errors.push("summary");
+  var priority = Number(form.priority);
+  if (isNaN(priority) || priority < 0 || priority > 9) errors.push("priority");
+  return errors;
+}
+
+// ponytail: edit-only (no create/recurrence-series distinction, no --duration
+// switch, no attendees/categories/etc.) — the fields TaskRow already surfaces.
+// Widen if the plain fields turn out to be too limiting in practice.
+function taskMutationArgs(mode, task, values) {
+  if (mode !== "edit" || !canEditTask(task)) return [];
+  var form = values || {};
+  if (validateTaskForm(form).length > 0) return [];
+  var original = taskEditorValues(task);
+  var summary = String(form.summary || "").trim();
+  var args = ["todo", "update", taskReference(task)];
+  var changed = false;
+  if (summary !== original.summary) { args.push("--summary", summary); changed = true; }
+  if (String(form.due || "") !== String(original.due || "")) { args.push("--due", String(form.due || "")); changed = true; }
+  if (String(form.start || "") !== String(original.start || "")) { args.push("--start", String(form.start || "")); changed = true; }
+  if (String(form.status || "") !== String(original.status || "")) { args.push("--status", String(form.status || "")); changed = true; }
+  if (Number(form.priority) !== Number(original.priority)) { args.push("--priority", String(Number(form.priority))); changed = true; }
+  if (String(form.description || "") !== String(original.description || "")) { args.push("--description", String(form.description || "")); changed = true; }
+  return changed ? args : [];
+}
+
+function taskDeleteArgs(task) {
+  if (!canDeleteTask(task)) return [];
+  return ["todo", "delete", taskReference(task), "--yes"];
+}
+
+function taskCompleteArgs(task) {
+  if (!canEditTask(task)) return [];
+  return ["todo", "complete", taskReference(task)];
+}
+
 function calendarOptions(calendars) {
   return (calendars || []).map(function(calendar) {
     return { value: String(calendar.id), label: String(calendar.name || "Calendar"), description: "" };
