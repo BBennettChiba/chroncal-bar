@@ -24,6 +24,8 @@ Panel {
   readonly property var visibleEvents: Model.searchEvents(agendaData.events || [], searchQuery)
   readonly property var groups: Model.groupEvents(visibleEvents, agendaData.generated_at || new Date().toISOString())
   readonly property var calendars: hostWidget ? (hostWidget.agendaData.calendars || []) : []
+  readonly property var tasksData: hostWidget ? hostWidget.filteredTasks : ({ status: "loading", tasks: [] })
+  readonly property var visibleTasks: Model.searchTasks(tasksData.tasks || [], searchQuery)
   property string selectedEventKey: ""
   property var selectedEvent: null
   property string editorMode: ""
@@ -683,7 +685,7 @@ Panel {
           }
 
           Text {
-            visible: !root.showingDetails && !root.showingSettings && !root.showingEditor && !root.showingHelp && root.agendaData.status === "ok" && root.groups.length === 0
+            visible: !root.showingDetails && !root.showingSettings && !root.showingEditor && !root.showingHelp && root.agendaData.status === "ok" && root.groups.length === 0 && root.visibleTasks.length === 0
             anchors.centerIn: parent
             text: root.searchQuery !== "" ? "No matching events" : "No upcoming events"
             color: Util.alpha(root.contentForeground, 0.66)
@@ -693,7 +695,7 @@ Panel {
 
           Flickable {
             id: agendaFlick
-            visible: !root.showingDetails && !root.showingSettings && !root.showingEditor && !root.showingHelp && root.agendaData.status === "ok" && root.groups.length > 0
+            visible: !root.showingDetails && !root.showingSettings && !root.showingEditor && !root.showingHelp && root.agendaData.status === "ok" && (root.groups.length > 0 || root.visibleTasks.length > 0)
             anchors.top: searchField.bottom
             anchors.topMargin: searchField.visible ? Style.space(10) : 0
             anchors.left: parent.left
@@ -747,6 +749,35 @@ Panel {
                       }
                       onActivated: function(eventData) { root.showEvent(eventData) }
                     }
+                  }
+                }
+              }
+
+              Column {
+                id: tasksSection
+                visible: root.visibleTasks.length > 0
+                width: groupsColumn.width
+                spacing: Style.space(4)
+
+                Text {
+                  width: parent.width
+                  text: "TASKS"
+                  color: Util.alpha(root.contentForeground, 0.52)
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.caption
+                  font.bold: true
+                  font.letterSpacing: 1
+                }
+
+                Repeater {
+                  model: root.visibleTasks
+
+                  TaskRow {
+                    required property var modelData
+                    width: tasksSection.width
+                    bar: root.bar
+                    taskData: modelData
+                    nowIso: root.tasksData.generated_at || ""
                   }
                 }
               }

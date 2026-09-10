@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+# Omarchy Quattro panel helper: prints one JSON object with unfinished todos
+# (NEEDS-ACTION / IN-PROCESS) and exits. Mirrors chroncal-bar-agenda's
+# producer-side byte ceilings and hidden-calendar filtering so a large or
+# compromised backend response is treated as unavailable rather than
+# buffered whole into shell variables.
+set -uo pipefail
+
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+
+unavailable() {
+  printf '{"generated_at":"%s","status":"unavailable","calendars":[],"tasks":[]}\n' "$generated_at"
+}
+
+now_input=${CHRONCAL_BAR_NOW:-$(date --iso-8601=seconds)}
+if [[ $now_input =~ ^[0-9]+$ ]]; then
+  now_epoch=$now_input
+else
+  now_epoch=$(date -d "$now_input" +%s 2>/dev/null) || {
+    printf 'invalid CHRONCAL_BAR_NOW: %s\n' "$now_input" >&2
+    exit 64
+  }
+fi
+
+generated_at=$(date -u -d "@$now_epoch" +%Y-%m-%dT%H:%M:%SZ)
+state_dir=${XDG_STATE_HOME:-$HOME/.local/state}
+chroncal_state="$state_dir/chroncal/state.json"
+runner=${CHRONCAL_BIN:-$script_dir/chroncal-exec}
+tasks_cap=$((8 * 1024 * 1024))
+calendars_cap=$((256 * 1024))
+state_cap=$((1024 * 1024))
+
+work_dir=$(mktemp -d "${TMPDIR:-/tmp}/chroncal-bar-tasks.XXXXXX") || {
+  unavailable
+  exit 0
+}
+trap 'rm -rf "$work_dir"' EXIT
+
+# No --status/--all: chroncal todo list defaults to NEEDS-ACTION/IN-PROCESS
+# only, dateless todos included, no date window to exclude them.
+if ! timeout 10 "$runner" todo list --output json 2>/dev/null \
+  | head -c "$tasks_cap" > "$work_dir/tasks.json"; then
+  unavailable
+  exit 0
+fi
+
+if ! timeout 10 "$runner" calendar list --output json 2>/dev/null \
+  | head -c "$calendars_cap" > "$work_dir/calendars.json"; then
+  printf '[]\n' > "$work_dir/calendars.json"
+fi
+printf '[]\n' > "$work_dir/hidden.json"
+if "$script_dir/chroncal-read-regular" "$chroncal_state" "$state_cap" \
+    >"$work_dir/state.json" 2>/dev/null; then
+  jq -c '.hidden_calendars // []' "$work_dir/state.json" > "$work_dir/hidden.json" 2>/dev/null \
+    || printf '[]\n' > "$work_dir/hidden.json"
+fi
+
+if ! jq -cn \
+  --arg generated_at "$generated_at" \
+  --slurpfile tasks "$work_dir/tasks.json" \
+  --slurpfile calendars "$work_dir/calendars.json" \
+  --slurpfile hidden_calendar_ids "$work_dir/hidden.json" '
+  ($tasks[0] // []) as $tasks
+  | ($calendars[0] // []) as $calendars
+  | ($hidden_calendar_ids[0] // []) as $hidden_calendar_ids
+  | def calendar_for($id):
+    (first($calendars[]? | select(.id == $id)) // {});
+  def fallback_color($value):
+    if ($value // "") == "" then "#888888" else $value end;
+  def normalized_task:
+    . as $task
+    | calendar_for(.calendar_id) as $calendar
+    | {
+        id,
+        uid,
+        calendar_id,
+        calendar_name: ($calendar.name // "Calendar"),
+        calendar_color: fallback_color($calendar.color),
+        summary: (.summary // "Untitled"),
+        due_date: (.due_date // ""),
+        start_date: (.start_date // ""),
+        status: (.status // "NEEDS-ACTION"),
+        priority: (.priority // 0),
+        recurrence_rule: (.recurrence_rule // "")
+      };
+
+  ([
+    $tasks[]?
+    | . as $task
+    | select(($hidden_calendar_ids | index($task.calendar_id)) == null)
+    | normalized_task
+  ] | sort_by([(.due_date // .start_date // "9999-99-99"), .summary])) as $visible_tasks
+  | {
+      generated_at: $generated_at,
+      status: "ok",
+      calendars: [
+        $calendars[]?
+        | . as $calendar
+        | {
+            id,
+            name: (.name // "Calendar"),
+            color: fallback_color(.color),
+            hidden: (($hidden_calendar_ids | index($calendar.id)) != null)
+          }
+      ],
+      tasks: $visible_tasks
+    }
+' ; then
+  unavailable
+fi

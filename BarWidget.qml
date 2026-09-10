@@ -10,6 +10,7 @@ BarWidget {
   moduleName: "douglasdemoura.chroncal-bar"
 
   property var agendaData: ({ status: "loading", events: [] })
+  property var tasksData: ({ status: "loading", tasks: [] })
   property bool loading: false
   property bool refreshPending: false
 
@@ -22,6 +23,7 @@ BarWidget {
 
   readonly property string chroncalExecScript: filePathFromUrl(Qt.resolvedUrl("scripts/chroncal-exec"))
   readonly property string agendaScript: filePathFromUrl(Qt.resolvedUrl("scripts/chroncal-bar-agenda"))
+  readonly property string tasksScript: filePathFromUrl(Qt.resolvedUrl("scripts/chroncal-bar-tasks"))
   readonly property string openUrlScript: filePathFromUrl(Qt.resolvedUrl("scripts/chroncal-open-next-event-url"))
   readonly property var filterOptions: ({
     includedCalendarIds: Model.selectedCalendarIds(agendaData.calendars, root.settings),
@@ -31,6 +33,7 @@ BarWidget {
     showEventsWithoutLocation: root.setting("showEventsWithoutLocation", "On")
   })
   readonly property var filteredAgenda: Model.filterAgenda(agendaData, filterOptions)
+  readonly property var filteredTasks: Model.filterTaskAgenda(tasksData, filterOptions)
   readonly property var presentation: Model.barPresentation(
     filteredAgenda,
     Number(root.setting("maxTitleLength", 42)),
@@ -43,7 +46,7 @@ BarWidget {
   readonly property string displayText: presentation.text || "\uf133"
 
   function refresh() {
-    if (agendaProc.running) {
+    if (agendaProc.running || tasksProc.running) {
       refreshPending = true
       return
     }
@@ -51,12 +54,19 @@ BarWidget {
     loading = true
     agendaProc.command = [agendaScript, "--days", String(Number(root.setting("lookaheadDays", 7)))]
     agendaProc.running = true
+    tasksProc.command = [tasksScript]
+    tasksProc.running = true
   }
 
   function updateAgenda(raw) {
     var parsed = Util.parseModuleJson(raw)
     agendaData = parsed && parsed.status ? parsed : ({ status: "unavailable", events: [] })
     loading = false
+  }
+
+  function updateTasks(raw) {
+    var parsed = Util.parseModuleJson(raw)
+    tasksData = parsed && parsed.status ? parsed : ({ status: "unavailable", tasks: [] })
   }
 
   function openNextEventUrl() {
@@ -105,7 +115,19 @@ BarWidget {
     }
     onExited: function(exitCode) {
       if (exitCode !== 0) root.updateAgenda("")
-      if (root.refreshPending) Qt.callLater(function() { root.refresh() })
+      if (root.refreshPending && !tasksProc.running) Qt.callLater(function() { root.refresh() })
+    }
+  }
+
+  Process {
+    id: tasksProc
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.updateTasks(text)
+    }
+    onExited: function(exitCode) {
+      if (exitCode !== 0) root.updateTasks("")
+      if (root.refreshPending && !agendaProc.running) Qt.callLater(function() { root.refresh() })
     }
   }
 

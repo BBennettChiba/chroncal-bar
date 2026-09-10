@@ -329,6 +329,45 @@ function filterAgenda(agenda, options) {
   return filtered;
 }
 
+function searchTasks(tasks, query) {
+  var source = tasks || [];
+  var needle = String(query || "").trim().toLocaleLowerCase();
+  if (needle === "") return source.slice();
+  return source.filter(function(task) {
+    return String((task && task.summary) || "").toLocaleLowerCase().indexOf(needle) !== -1;
+  });
+}
+
+function filterTasks(tasks, options) {
+  var source = tasks || [];
+  var included = arrayValues(options && options.includedCalendarIds).map(function(value) { return String(value); });
+  var selectionCustomized = calendarSelectionCustomized(options);
+  return source.filter(function(task) {
+    if (selectionCustomized && included.indexOf(String(task.calendar_id)) === -1) return false;
+    return true;
+  });
+}
+
+function filterTaskAgenda(taskAgenda, options) {
+  if (!taskAgenda) return { status: "unavailable", tasks: [] };
+  var filtered = {};
+  for (var key in taskAgenda) filtered[key] = taskAgenda[key];
+  filtered.tasks = filterTasks(taskAgenda.tasks || [], options);
+  return filtered;
+}
+
+// due_date wins over start_date since a due task is the more urgent signal;
+// a dateless todo (no due, no start) gets no badge at all.
+function taskDateLabel(task, now) {
+  var raw = (task && task.due_date) || (task && task.start_date) || "";
+  var date = parseDateInput(raw);
+  if (!date) return "";
+  var prefix = task && task.due_date ? "Due " : "";
+  var difference = dayDifference(date, now);
+  if (difference < 0) return "Overdue " + formatDateInput(date).slice(5);
+  return prefix + dayLabel(date, now);
+}
+
 function calendarOptions(calendars) {
   return (calendars || []).map(function(calendar) {
     return { value: String(calendar.id), label: String(calendar.name || "Calendar"), description: "" };

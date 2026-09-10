@@ -450,6 +450,20 @@ const timeOnly = model.barPresentation({
 assert.doesNotMatch(timeOnly.text, /Current/);
 assert.match(timeOnly.text, /left|Now/);
 
+// tasks: date-label formatting, search, and calendar filtering
+assert.equal(model.taskDateLabel({ due_date: "2026-08-15", start_date: "2026-08-10" }, new Date("2026-08-15T12:00:00Z")), "Due Today");
+assert.equal(model.taskDateLabel({ start_date: "2026-08-16" }, new Date("2026-08-15T12:00:00Z")), "Tomorrow");
+assert.equal(model.taskDateLabel({ due_date: "2026-08-10" }, new Date("2026-08-15T12:00:00Z")), "Overdue 08-10");
+assert.equal(model.taskDateLabel({}, new Date("2026-08-15T12:00:00Z")), "");
+
+const searchableTasks = [{ summary: "Edit Midnights Children" }, { summary: "Read Latin" }];
+assert.deepEqual(model.searchTasks(searchableTasks, "latin"), [{ summary: "Read Latin" }]);
+assert.deepEqual(model.searchTasks(searchableTasks, ""), searchableTasks);
+
+const tasksByCalendar = [{ calendar_id: 1 }, { calendar_id: 2 }];
+assert.deepEqual(model.filterTasks(tasksByCalendar, { includedCalendarIds: ["1"], calendarSelectionCustomized: true }), [{ calendar_id: 1 }]);
+assert.deepEqual(model.filterTasks(tasksByCalendar, { calendarSelectionCustomized: false }), tasksByCalendar);
+
 console.log("agenda model tests: ok");
 
 const recurrenceStart = "2026-08-19"; // Wednesday
