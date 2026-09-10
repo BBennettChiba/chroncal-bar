@@ -352,10 +352,14 @@ function barPresentation(agenda, maximumTitleLength, displayOptions) {
   var relativeLeadMinutes = Number(displayOptions && displayOptions.relativeLeadMinutes !== undefined ? displayOptions.relativeLeadMinutes : 10);
   if (anchor.all_day === true) {
     var allDayParts = [];
-    if (showTime) allDayParts.push("All day");
-    if (showTitle) allDayParts.push(escapeHtml(truncate(anchor.title, titleLimit)));
+    if (showTime) {
+      var anchorAllDayStart = parseDate(anchor.start_time);
+      var allDayLabel = anchorAllDayStart ? relativeDayLabel(anchorAllDayStart, now) : "";
+      allDayParts.push(allDayLabel !== "" ? allDayLabel : "All day");
+    }
+    if (showTitle) allDayParts.push(truncate(anchor.title, titleLimit));
     return {
-      text: allDayParts.length > 0 ? richText(" " + allDayParts.join(" · ") + " ") : "",
+      text: allDayParts.length > 0 ? " " + allDayParts.join(" · ") + " " : "",
       className: "all-day",
       tooltip: tooltip
     };
@@ -375,9 +379,9 @@ function barPresentation(agenda, maximumTitleLength, displayOptions) {
   if (cluster.length <= 1) {
     var parts = [];
     if (showTime) parts.push(eventLeadLabel(anchor, now, relativeLeadMinutes));
-    if (showTitle) parts.push(escapeHtml(truncate(anchor.title, titleLimit)));
+    if (showTitle) parts.push(truncate(anchor.title, titleLimit));
     return {
-      text: parts.length > 0 ? richText(" " + parts.join(" · ") + " ") : "",
+      text: parts.length > 0 ? " " + parts.join(" · ") + " " : "",
       className: className,
       tooltip: tooltip
     };
@@ -386,12 +390,12 @@ function barPresentation(agenda, maximumTitleLength, displayOptions) {
   var visible = cluster.slice(0, 3).map(function(event) {
     var eventParts = [];
     if (showTime) eventParts.push(eventLeadLabel(event, now, relativeLeadMinutes));
-    if (showTitle) eventParts.push(escapeHtml(truncate(event.title, 18)));
-    return colorBlock(event) + (eventParts.length > 0 ? " " + eventParts.join(" · ") : "");
+    if (showTitle) eventParts.push(truncate(event.title, 18));
+    return "■" + (eventParts.length > 0 ? " " + eventParts.join(" · ") : "");
   }).join(" | ");
   var more = cluster.length > 3 ? " +" + (cluster.length - 3) : "";
   return {
-    text: richText(" " + visible + more + " "),
+    text: " " + visible + more + " ",
     className: [className, "overlap"],
     tooltip: tooltip
   };

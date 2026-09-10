@@ -402,6 +402,26 @@ assert.match(presentation.tooltip, /11:30–12:30/);
 assert.equal(model.barPresentation({ status: "unavailable", events: [] }, 42).className, "unavailable");
 assert.equal(model.barPresentation({ status: "ok", generated_at: "2026-08-15T12:00:00Z", events: [] }, 42).className, "empty");
 
+// bar text renders as Text.PlainText (Omarchy WidgetButton) — no HTML/Pango markup may leak into it
+const todayAllDay = model.barPresentation({
+  status: "ok",
+  generated_at: "2026-08-15T12:00:00Z",
+  events: [{ id: 5, title: "Today allday", start_time: "2026-08-15T00:00:00Z", end_time: "2026-08-16T00:00:00Z", all_day: true }]
+}, 42);
+assert.match(todayAllDay.text, /All day/);
+assert.doesNotMatch(todayAllDay.text, /[<>]/);
+
+const tomorrowAllDay = model.barPresentation({
+  status: "ok",
+  generated_at: "2026-08-15T12:00:00Z",
+  events: [{ id: 6, title: "Look back", start_time: "2026-08-16T00:00:00Z", end_time: "2026-08-17T00:00:00Z", all_day: true }]
+}, 42);
+assert.match(tomorrowAllDay.text, /Tomorrow/);
+assert.doesNotMatch(tomorrowAllDay.text, /All day/);
+assert.doesNotMatch(tomorrowAllDay.text, /[<>]/);
+
+assert.doesNotMatch(presentation.text, /[<>]/);
+
 const futurePresentation = model.barPresentation({
   status: "ok",
   generated_at: "2026-08-15T12:00:00Z",
